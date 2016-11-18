@@ -13,6 +13,17 @@ BEGIN
                           AND np_event_name = p_event_name
                           AND np_partition = p.partition);
 
+    UPDATE nakadi_partition np
+       SET np_waiting = np_waiting || ARRAY[p_locked_by],
+           np_last_modified = statement_timestamp()
+      FROM unnest(p_partitions) p(partition)
+     WHERE np_consumer_name = p_consumer_name
+       AND np_event_name = p_event_name
+       AND np_partition = p.partition
+       AND np_locked_by IS NOT NULL
+       AND np_locked_by <> p_locked_by
+       AND (np_waiting IS NULL OR NOT p_locked_by = ANY(np_waiting));
+
     RETURN QUERY
     UPDATE nakadi_partition np
        SET np_locked_by = p_locked_by,

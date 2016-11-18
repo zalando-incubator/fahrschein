@@ -21,7 +21,6 @@ import org.zalando.fahrschein.InMemoryCursorManager;
 import org.zalando.fahrschein.Listener;
 import org.zalando.fahrschein.NakadiClient;
 import org.zalando.fahrschein.NoBackoffStrategy;
-import org.zalando.fahrschein.StreamParameters;
 import org.zalando.fahrschein.ZignAccessTokenProvider;
 import org.zalando.fahrschein.domain.Lock;
 import org.zalando.fahrschein.domain.Partition;
@@ -47,6 +46,7 @@ public class Main {
     private static final String JDBC_URL = "jdbc:postgresql://localhost:5432/local_nakadi_cursor_db";
     private static final String JDBC_USERNAME = "postgres";
     private static final String JDBC_PASSWORD = "postgres";
+    public static final int INSTANCES = 4;
 
     public static void main(String[] args) throws IOException, InterruptedException {
 
@@ -75,18 +75,18 @@ public class Main {
                 for (SalesOrderPlaced salesOrderPlaced : events) {
                     LOG.debug("Received sales order [{}]", salesOrderPlaced.getSalesOrder().getOrderNumber());
                     final int count = counter.incrementAndGet();
-                    if (count % 1000 == 0) {
+                    if (count % 100 == 0) {
                         LOG.info("Received [{}] sales orders", count);
                     }
                 }
             }
         };
 
-        simpleListen(objectMapper, listener);
+        //simpleListen(objectMapper, listener);
 
         //persistentListen(objectMapper, listener);
 
-        //multiInstanceListen(objectMapper, listener);
+        multiInstanceListen(objectMapper, listener);
     }
 
     private static void simpleListen(ObjectMapper objectMapper, Listener<SalesOrderPlaced> listener) throws IOException {
@@ -142,7 +142,7 @@ public class Main {
         final AtomicInteger name = new AtomicInteger();
         final ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(16);
 
-        for (int i = 0; i < 12; i++) {
+        for (int i = 0; i < INSTANCES; i++) {
             final String instanceName = "consumer-" + name.getAndIncrement();
             final JdbcPartitionManager partitionManager = new JdbcPartitionManager(dataSource, "fahrschein-demo");
             final JdbcCursorManager cursorManager = new JdbcCursorManager(dataSource, "fahrschein-demo");
@@ -153,39 +153,40 @@ public class Main {
                     .build();
 
             final List<Partition> partitions = nakadiClient.getPartitions(SALES_ORDER_SERVICE_ORDER_PLACED);
+            //final int partitionsPerInstance = (int) Math.ceil((double) partitions.size() / INSTANCES);
+            //final List<Partition> partitionsForInstance = partitions.subList(i * partitionsPerInstance, Math.min(partitions.size() + 1, (i + 1) * partitionsPerInstance));
 
             cursorManager.fromOldestAvailableOffset(SALES_ORDER_SERVICE_ORDER_PLACED, partitions);
 
-            final IORunnable instance = () -> {
+            final IORunnable runnable = () -> {
+                final Optional<Lock> optionalLock = partitionManager.lockPartitions(SALES_ORDER_SERVICE_ORDER_PLACED, partitions, instanceName);
 
-                final IORunnable runnable = () -> {
-                    final Optional<Lock> optionalLock = partitionManager.lockPartitions(SALES_ORDER_SERVICE_ORDER_PLACED, partitions, instanceName);
-
-                    if (optionalLock.isPresent()) {
-                        final Lock lock = optionalLock.get();
-                        try {
-                            nakadiClient.stream(SALES_ORDER_SERVICE_ORDER_PLACED)
-                                    .withLock(lock)
-                                    .withObjectMapper(objectMapper)
-                                    .withStreamParameters(new StreamParameters().withStreamLimit(10))
-                                    .withBackoffStrategy(new NoBackoffStrategy())
-                                    .listen(SalesOrderPlaced.class, listener);
-                        } finally {
-                            partitionManager.unlockPartitions(lock);
-                        }
+                if (optionalLock.isPresent()) {
+                    final Lock lock = optionalLock.get();
+                    try {
+                        nakadiClient.stream(SALES_ORDER_SERVICE_ORDER_PLACED)
+                                .withLock(lock)
+                                .withObjectMapper(objectMapper)
+                                        //.withStreamParameters(new StreamParameters().withStreamLimit(1000))
+                                .withBackoffStrategy(new NoBackoffStrategy())
+                                .listen(SalesOrderPlaced.class, listener);
+                    } catch (IOException e) {
+                        LOG.error("IOException", e);
+                    } finally {
+                        partitionManager.unlockPartitions(lock);
                     }
-                };
-
-                scheduledExecutorService.scheduleWithFixedDelay(runnable.unchecked(), 0, 1, TimeUnit.SECONDS);
+                }
             };
-            scheduledExecutorService.submit(instance.unchecked());
+            scheduledExecutorService.scheduleWithFixedDelay(runnable.unchecked(), 0, 1, TimeUnit.SECONDS);
         }
 
-        try {
-            Thread.sleep(60L*1000);
-            scheduledExecutorService.awaitTermination(Long.MAX_VALUE, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        while (true) {
+            try {
+                Thread.sleep(10L * 1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
         }
     }
 }
