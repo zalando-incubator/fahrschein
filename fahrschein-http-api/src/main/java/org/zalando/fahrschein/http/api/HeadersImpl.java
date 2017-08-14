@@ -34,13 +34,9 @@ public final class HeadersImpl implements Headers {
         }
     }
 
-    @Override
-    public List<String> get(String headerName) {
-        String caseInsensitiveHeaderName = caseMapping.get(headerName);
-        if (caseInsensitiveHeaderName == null) {
-            caseMapping.put(headerName, headerName);
-            caseInsensitiveHeaderName = headerName;
-        }
+    private List<String> get(String headerName, boolean readOnly) {
+        final String existingHeaderName = readOnly ? caseMapping.get(headerName) : caseMapping.putIfAbsent(headerName, headerName);
+        final String caseInsensitiveHeaderName = existingHeaderName != null ? existingHeaderName : headerName;
 
         final List<String> list = headers.get(caseInsensitiveHeaderName);
         if (list == null) {
@@ -58,13 +54,18 @@ public final class HeadersImpl implements Headers {
     }
 
     @Override
+    public List<String> get(String headerName) {
+        return get(headerName, true);
+    }
+
+    @Override
     public void add(String headerName, String value) {
-        get(headerName).add(value);
+        get(headerName, readOnly).add(value);
     }
 
     @Override
     public void put(String headerName, String value) {
-        final List<String> list = get(headerName);
+        final List<String> list = get(headerName, readOnly);
         if (!list.isEmpty()) {
             list.clear();
         }

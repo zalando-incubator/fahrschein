@@ -135,4 +135,12 @@ public class HeadersImplTest {
 
         assertEquals(-1L, headers.getContentLength());
     }
+
+    @Test(expected = UnsupportedOperationException.class)
+    public void headerValuesShouldBeUnmodifiable() {
+        final HeadersImpl headers = new HeadersImpl();
+        headers.put("Accept", "text/plan");
+
+        headers.get("Accept").add("application/json");
+    }
 }
