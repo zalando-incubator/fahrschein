@@ -62,6 +62,7 @@
         <module>fahrschein-redis</module>
         <module>fahrschein-inmemory</module>
         <module>fahrschein-metrics-dropwizard</module>
+        <module>fahrschein-metrics-micrometer</module>
         <module>fahrschein-example</module>
         <module>fahrschein-test-support</module>
         <module>fahrschein-typeresolver</module>
