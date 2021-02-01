@@ -41,7 +41,7 @@ class ProblemHandlingRequest implements Request {
                 final Headers headers = response.getHeaders();
                 final ContentType contentType = headers.getContentType();
 
-                if (mightBeProblematic(contentType)) {
+                if (contentType == null || mightBeProblematic(contentType)) {
 
                     final JsonNode json = objectMapper.readTree(response.getBody());
 
